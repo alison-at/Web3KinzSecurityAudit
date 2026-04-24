@@ -394,4 +394,20 @@ describe("Web3Kinz", function () {
       ).to.be.revertedWith("You are not the intended recipient");
     });
   });
+
+    // passes test revealing bug
+  describe("Games", function () {
+    it("should revert if user attempts to sell carat eclipse item due to invalid index bug", async function () {
+      await expect(
+        web3kinz.connect(addr1).sellGem("carat eclipse")
+      ).to.be.revertedWith("Invalid index");
+    });
+
+    it("should revert if user attempts to check carat eclipse item due to invalid index bug", async function () {
+      await expect(
+        web3kinz.connect(addr1).checkGemAmount("carat eclipse")
+      ).to.be.revertedWith("Invalid index");
+    });
+
+  });
 });
