@@ -30,14 +30,11 @@ describe("Web3Kinz", function () {
   });
 
   describe("Deployment", function () {
-    it("should deploy child food, pet, and clothing contracts", async function () {
+    it("should deploy child food, pet, clothing, and furniture contracts", async function () {
       expect(await web3kinz.food()).to.not.equal(ethers.ZeroAddress);
       expect(await web3kinz.nftPet()).to.not.equal(ethers.ZeroAddress);
       expect(await web3kinz.clothing()).to.not.equal(ethers.ZeroAddress);
-    });
-
-    it("should leave furniture uninitialized", async function () {
-      expect(await web3kinz.furniture()).to.equal(ethers.ZeroAddress);
+      expect(await web3kinz.furniture()).to.not.equal(ethers.ZeroAddress);
     });
 
     it("should initialize gem index mapping including carat eclipse", async function () {
