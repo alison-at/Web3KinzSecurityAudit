@@ -56,7 +56,7 @@ describe("Web3Kinz", function () {
       ).to.be.revertedWith("Adopting a pet costs 0.01 eth");
     });
 
-    it("should allow a user to adopt a pet and receive 100 KinzCash", async function () {
+    it("should allow a user to adopt a pet and have no initial KinzCash", async function () {
       await expect(
         web3kinz.connect(addr1).adoptPet(
           ethers.encodeBytes32String("cat"),
@@ -68,7 +68,7 @@ describe("Web3Kinz", function () {
       expect(await web3kinz.petToOwner(0)).to.equal(addr1.address);
 
       const userInfo = await web3kinz.users(addr1.address);
-      expect(userInfo.balance).to.equal(100);
+      expect(userInfo.balance).to.equal(0);
       expect(userInfo.exists).to.equal(true);
 
       const petInfo = await web3kinz.pets(0);
@@ -184,12 +184,25 @@ describe("Web3Kinz", function () {
       ).to.be.revertedWith("Cannot Purchase Crown.");
     });
 
-    it("should revert when purchasing furniture because furniture contract is uninitialized", async function () {
-      await web3kinz.connect(addr1).buyKinzCash({ value: 200000 });
+    it("should revert if user to purchase furniture with insufficient KinzCash balance", async function () {
+      await web3kinz.connect(addr1).buyKinzCash({ value: 100000 }); // 100 KinzCash
 
       await expect(
         web3kinz.connect(addr1).purchaseFurniture(0)
-      ).to.be.reverted;
+      ).to.be.revertedWith("Furniture items cost 150 KinzCash");
+    });
+
+    it("should allow user to purchase furniture after acquiring 150 or more KinzCash", async function () {
+      await web3kinz.connect(addr1).buyKinzCash({ value: 200000 });
+
+      await web3kinz.connect(addr1).purchaseFurniture(0);
+
+      expect(await furniture.ownerOf(0)).to.equal(addr1.address);
+
+      const uri = await furniture.ownerOf(0).tokenURI(0);
+      expect(uri).to.equal(
+        "ipfs://bafkreib62nibyvfegj2omkxmytg632fhxz473yxfcij7k7hvzynlf5jseu"
+      );
     });
   });
 
