@@ -30,11 +30,35 @@ describe("Web3Kinz", function () {
   });
 
   describe("Deployment", function () {
-    it("should deploy child food, pet, clothing, and furniture contracts", async function () {
+    it("should deploy child food contract", async function () {
       expect(await web3kinz.food()).to.not.equal(ethers.ZeroAddress);
+    });
+
+    it("should deploy child pet contract", async function () {
       expect(await web3kinz.nftPet()).to.not.equal(ethers.ZeroAddress);
+    });
+
+    it("should deploy child clothing contract", async function () {
       expect(await web3kinz.clothing()).to.not.equal(ethers.ZeroAddress);
+    });
+
+    // BUG: main contract does not deploy the child furniture contract in the constructor
+    it("should deploy child furniture contract", async function () {
       expect(await web3kinz.furniture()).to.not.equal(ethers.ZeroAddress);
+    });
+
+    it("should initialize gem index mapping including webkinz diamond", async function () {
+      const index = await web3kinz.gemToIndex(
+        ethers.keccak256(ethers.toUtf8Bytes("webkinz diamond"))
+      );
+      expect(index).to.equal(0);
+    });
+
+      it("should initialize gem index mapping including jaded envy", async function () {
+      const index = await web3kinz.gemToIndex(
+        ethers.keccak256(ethers.toUtf8Bytes("jaded envy"))
+      );
+      expect(index).to.equal(15);
     });
 
     it("should initialize gem index mapping including carat eclipse", async function () {
@@ -42,6 +66,11 @@ describe("Web3Kinz", function () {
         ethers.keccak256(ethers.toUtf8Bytes("carat eclipse"))
       );
       expect(index).to.equal(29);
+    });
+
+    // BUG: unmapped gemToIndex keys return index 0 due to returning the default value of the mapping's value type
+    it("should not allow users to use invalid gemToIndex keys", async function () {
+      await expect(web3kinz.connect(addr1).checkGemAmount("fake gem")).to.be.reverted;
     });
   });
 
@@ -56,11 +85,54 @@ describe("Web3Kinz", function () {
       ).to.be.revertedWith("Adopting a pet costs 0.01 eth");
     });
 
-    it("should allow a user to adopt a pet and have no initial KinzCash", async function () {
+    it("should allow a user to adopt a pet if they pay 0.01 ether", async function () {
       await expect(
         web3kinz.connect(addr1).adoptPet(
           ethers.encodeBytes32String("cat"),
           ethers.encodeBytes32String("milo"),
+          { value: ethers.parseEther("0.01") }
+        )
+      ).to.emit(web3kinz, "PetAdopted");
+
+      expect(await web3kinz.petToOwner(0)).to.equal(addr1.address);
+
+      const petInfo = await web3kinz.pets(0);
+      expect(petInfo.hunger).to.equal(100);
+      expect(petInfo.happiness).to.equal(100);
+      expect(petInfo.sleeplevel).to.equal(100);
+      expect(petInfo.asleep).to.equal(false);
+      expect(petInfo.comatose).to.equal(false);
+
+      expect(await pet.ownerOf(0)).to.equal(addr1.address);
+    });
+
+    it("should allow a different user to adopt a pet if they pay 0.01 ether", async function () {
+      await expect(
+        web3kinz.connect(addr2).adoptPet(
+          ethers.encodeBytes32String("dog"),
+          ethers.encodeBytes32String("eevee"),
+          { value: ethers.parseEther("0.01") }
+        )
+      ).to.emit(web3kinz, "PetAdopted");
+
+      expect(await web3kinz.petToOwner(0)).to.equal(addr2.address);
+
+      const petInfo = await web3kinz.pets(0);
+      expect(petInfo.hunger).to.equal(100);
+      expect(petInfo.happiness).to.equal(100);
+      expect(petInfo.sleeplevel).to.equal(100);
+      expect(petInfo.asleep).to.equal(false);
+      expect(petInfo.comatose).to.equal(false);
+
+      expect(await pet.ownerOf(0)).to.equal(addr2.address);
+    });
+
+    // BUG: unexpected free KinzCash balance granted upon adopting a pet
+    it("user should not have any KinzCash upon adopting their first pet'", async function () {
+      await expect(
+        web3kinz.connect(addr1).adoptPet(
+          ethers.encodeBytes32String("cat"),
+          ethers.encodeBytes32String("dodo"),
           { value: ethers.parseEther("0.01") }
         )
       ).to.emit(web3kinz, "PetAdopted");
@@ -99,6 +171,28 @@ describe("Web3Kinz", function () {
 
       expect(await pet.ownerOf(0)).to.equal(addr1.address);
       expect(await pet.ownerOf(1)).to.equal(addr1.address);
+    });
+
+    // additional test related to free KinzCash upon pet adoption bug
+    it("adopting a pet should not grant user free KinzCash", async function () {
+      await web3kinz.connect(addr1).adoptPet(
+        ethers.encodeBytes32String("cat"),
+        ethers.encodeBytes32String("milo"),
+        { value: ethers.parseEther("0.01") }
+      );
+
+      const userInfo = await web3kinz.users(addr1.address);
+      const balanceAfterPetOne = userInfo.balance;
+
+      await web3kinz.connect(addr1).adoptPet(
+        ethers.encodeBytes32String("dog"),
+        ethers.encodeBytes32String("buddy"),
+        { value: ethers.parseEther("0.01") }
+      );
+
+      const userInfoAfterPetTwo = await web3kinz.users(addr1.address);
+      const balanceAfterPetTwo = userInfoAfterPetTwo.balance;
+      expect(balanceAfterPetTwo).to.equal(balanceAfterPetOne);
     });
   });
 
@@ -393,21 +487,5 @@ describe("Web3Kinz", function () {
         web3kinz.connect(addr3).makeTrade(0)
       ).to.be.revertedWith("You are not the intended recipient");
     });
-  });
-
-    // passes test revealing bug
-  describe("Games", function () {
-    it("should revert if user attempts to sell carat eclipse item due to invalid index bug", async function () {
-      await expect(
-        web3kinz.connect(addr1).sellGem("carat eclipse")
-      ).to.be.revertedWith("Invalid index");
-    });
-
-    it("should revert if user attempts to check carat eclipse item due to invalid index bug", async function () {
-      await expect(
-        web3kinz.connect(addr1).checkGemAmount("carat eclipse")
-      ).to.be.revertedWith("Invalid index");
-    });
-
   });
 });
