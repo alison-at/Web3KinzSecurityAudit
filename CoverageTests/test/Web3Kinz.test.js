@@ -106,6 +106,54 @@ describe("Web3Kinz", function () {
       expect(await pet.ownerOf(0)).to.equal(addr1.address);
     });
 
+    it("should store correct petType and petName when user adopts a new pet", async function () {
+      const adoptPet = await web3kinz.connect(addr1).adoptPet(
+        ethers.encodeBytes32String("bird"),
+        ethers.encodeBytes32String("carpool"),
+        { value: ethers.parseEther("0.01") }
+      );
+
+      const receipt = await adoptPet.wait();
+      const event = receipt.logs.find(log => log.fragment?.name === "PetAdopted");
+      const petId = event.args.petId;
+
+      const thePet = await web3kinz.pets(petId);
+
+      const nameOfPet = thePet.petName;
+      const typeOfPet = thePet.petType;
+
+      expect(nameOfPet).to.equal(ethers.encodeBytes32String("carpool"));
+      expect(typeOfPet).to.equal(ethers.encodeBytes32String("bird"));
+    });
+
+    // TO-DO: double check if this is what they intended, bc i think it would be correct
+    // (idk if some person accidentally let pet1 die and want that "pet" again by just adopting
+    // a new pet w/same name and type)
+    it("should allow a user to adopt a pet with the same type and name as an already owned pet", async function () {
+      const adoptPet1 = await web3kinz.connect(addr1).adoptPet(
+        ethers.encodeBytes32String("cat"),
+        ethers.encodeBytes32String("dodo"),
+        { value: ethers.parseEther("0.01") }
+      );
+
+      const receipt = await adoptPet1.wait();
+      const event = receipt.logs.find(log => log.fragment?.name === "PetAdopted");
+      const petId1 = event.args.petId;
+
+      const adoptPet2 = await web3kinz.connect(addr1).adoptPet(
+        ethers.encodeBytes32String("cat"),
+        ethers.encodeBytes32String("dodo"),
+        { value: ethers.parseEther("0.01") }
+      );
+
+      const receipt2 = await adoptPet2.wait();
+      const event2 = receipt2.logs.find(log => log.fragment?.name === "PetAdopted");
+      const petId2 = event2.args.petId;
+
+      expect(petId1).to.not.equal(petId2);
+      
+    });
+
     it("should allow a different user to adopt a pet if they pay 0.01 ether", async function () {
       await expect(
         web3kinz.connect(addr2).adoptPet(
@@ -128,7 +176,7 @@ describe("Web3Kinz", function () {
     });
 
     // BUG: unexpected free KinzCash balance granted upon adopting a pet
-    it("user should not have any KinzCash upon adopting their first pet'", async function () {
+    it("user should not have any KinzCash upon adopting their first pet", async function () {
       await expect(
         web3kinz.connect(addr1).adoptPet(
           ethers.encodeBytes32String("cat"),
