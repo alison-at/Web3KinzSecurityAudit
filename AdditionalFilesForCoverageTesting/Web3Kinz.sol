@@ -145,8 +145,7 @@ contract Web3Kinz {
 
     // modifier for only owner
     modifier onlyOwner {
-        /// DeleteExpressionMutation(`require(msg.sender == owner)` |==> `assert(true)`) of: `require(msg.sender == owner);`
-        assert(true);
+        require(msg.sender == owner);
         _;
     }
 
