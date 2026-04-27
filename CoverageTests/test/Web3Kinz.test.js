@@ -1,5 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { bigint } = require("hardhat/internal/core/params/argumentTypes");
 
 describe("Web3Kinz", function () {
   let owner, addr1, addr2, addr3;
@@ -15,9 +16,7 @@ describe("Web3Kinz", function () {
     [owner, addr1, addr2, addr3] = await ethers.getSigners();
   
     const Web3Kinz = await ethers.getContractFactory("Web3Kinz");
-    web3kinz = await Web3Kinz.deploy({
-        gasLimit: 16000000,
-    });
+    web3kinz = await Web3Kinz.deploy({ gasLimit: 80_000_000 });
     await web3kinz.waitForDeployment();
   
     const foodAddress = await web3kinz.food();
@@ -29,6 +28,11 @@ describe("Web3Kinz", function () {
     clothing = await ethers.getContractAt("Web3KinzClothing", clothingAddress);
   });
 
+  /**
+   * 
+   * DEPLOYMENT TESTS
+   * 
+   */
   describe("Deployment", function () {
     it("should deploy child food contract", async function () {
       expect(await web3kinz.food()).to.not.equal(ethers.ZeroAddress);
@@ -74,6 +78,11 @@ describe("Web3Kinz", function () {
     });
   });
 
+  /**
+   * 
+   * PET ADOPTION TESTS
+   * 
+   */
   describe("Pet adoption", function () {
     it("should revert if adoption payment is below 0.01 ether", async function () {
       await expect(
@@ -126,9 +135,6 @@ describe("Web3Kinz", function () {
       expect(typeOfPet).to.equal(ethers.encodeBytes32String("bird"));
     });
 
-    // TO-DO: double check if this is what they intended, bc i think it would be correct
-    // (idk if some person accidentally let pet1 die and want that "pet" again by just adopting
-    // a new pet w/same name and type)
     it("should allow a user to adopt a pet with the same type and name as an already owned pet", async function () {
       const adoptPet1 = await web3kinz.connect(addr1).adoptPet(
         ethers.encodeBytes32String("cat"),
@@ -244,6 +250,12 @@ describe("Web3Kinz", function () {
     });
   });
 
+
+  /**
+   * 
+   * BUYING KINZCASH TESTS
+   * 
+   */
   describe("KinzCash", function () {
     it("should allow a user to buy KinzCash", async function () {
       await web3kinz.connect(addr1).buyKinzCash({ value: 5000 });
@@ -260,6 +272,11 @@ describe("Web3Kinz", function () {
     });
   });
 
+  /**
+   * 
+   * BUYING FOOD, CLOTHING, FURNITURE ITEMS TESTS
+   * 
+   */
   describe("Shopping", function () {
     it("should allow purchaseFood and mint ERC20 food", async function () {
       await web3kinz.connect(addr1).buyKinzCash({ value: 100000 });
@@ -288,6 +305,16 @@ describe("Web3Kinz", function () {
     });
 
     it("should revert purchaseClothing when user has exactly 100 KinzCash because of strict greater-than check", async function () {
+      await web3kinz.connect(addr1).buyKinzCash({ value: 1000 }); // 1 KinzCash
+
+      await web3kinz.connect(addr1).purchaseClothing(0);
+
+      await expect(
+        web3kinz.connect(addr1).purchaseClothing(1)
+      ).to.be.revertedWith("Clothing items cost 100 KinzCash");
+    });
+
+    it("should revert purchaseClothing when user has insufficient KinzCash", async function () {
       await web3kinz.connect(addr1).buyKinzCash({ value: 100000 }); // 100 KinzCash
 
       await expect(
@@ -326,20 +353,55 @@ describe("Web3Kinz", function () {
       ).to.be.revertedWith("Cannot Purchase Crown.");
     });
 
-    it("should revert if user to purchase furniture with insufficient KinzCash balance", async function () {
+    // BUG: currently, furniture tests should all fail because furniture child contract wasn't deployed
+    // like it should have been in constructor -- will test again for functionality w/fixed (as intended)
+    // ver of the main sol files
+
+    it("should revert if user attempts to purchase invalid furniture type", async function () {
       await web3kinz.connect(addr1).buyKinzCash({ value: 100000 }); // 100 KinzCash
 
+      await expect(
+        web3kinz.connect(addr1).purchaseFurniture(150)
+      ).to.be.revertedWith("Furniture type does not exist");
+    });
+
+    it("should revert if user attempts to purchase furniture with insufficient KinzCash balance", async function () {
       await expect(
         web3kinz.connect(addr1).purchaseFurniture(0)
       ).to.be.revertedWith("Furniture items cost 150 KinzCash");
     });
 
     it("should allow user to purchase furniture after acquiring 150 or more KinzCash", async function () {
+      const userInfo = await web3kinz.users(addr1.address);
+      const userBalance = userInfo.balance;
+      
+      await web3kinz.connect(addr1).buyKinzCash({ value: 200000 });
+
+      expect(await web3kinz.connect(addr1).purchaseFurniture(0).to.not.reverted);
+    });
+
+    it("should correctly deduct 150 KinzCash from user upon furniture purchase", async function () {
+      const userInfo = await web3kinz.users(addr1.address);
+      const userBalance = userInfo.balance;
+      
       await web3kinz.connect(addr1).buyKinzCash({ value: 200000 });
 
       await web3kinz.connect(addr1).purchaseFurniture(0);
 
-      expect(await furniture.ownerOf(0)).to.equal(addr1.address);
+      const userInfoAfterBuyingFurniture = await web3kinz.users(addr1.address);
+      const userBalanceAfterBuyingFurniture = userInfoAfterBuyingFurniture.balance;
+
+      expect(userBalanceAfterBuyingFurniture).to.equal(userBalance - 150);
+    });
+
+    // TO-DO: check again after furniture contract is init
+    it("should correctly assign user as owner of nft image representing purchased item", async function () {
+      const userInfo = await web3kinz.users(addr1.address);
+      const userBalance = userInfo.balance;
+      
+      await web3kinz.connect(addr1).buyKinzCash({ value: 200000 });
+
+      await web3kinz.connect(addr1).purchaseFurniture(0);
 
       const uri = await furniture.ownerOf(0).tokenURI(0);
       expect(uri).to.equal(
@@ -348,6 +410,11 @@ describe("Web3Kinz", function () {
     });
   });
 
+  /**
+   * 
+   * PET CARE FUNCTION TESTS
+   * 
+   */
   describe("Pet care", function () {
     beforeEach(async function () {
       await web3kinz.connect(addr1).adoptPet(
@@ -357,6 +424,9 @@ describe("Web3Kinz", function () {
       );
     });
 
+    /**
+     *  SLEEP RELATED TESTS
+     */
     it("should revert pet-owner-only functions for non-owners", async function () {
       await expect(web3kinz.connect(addr2).checkHunger(0)).to.be.reverted;
       await expect(web3kinz.connect(addr2).naptime(0)).to.be.reverted;
@@ -364,15 +434,59 @@ describe("Web3Kinz", function () {
       await expect(web3kinz.connect(addr2).feedPet(0, 1)).to.be.reverted;
     });
 
-    it("should reduce hunger after time passes", async function () {
-      await increaseTime(3600); // 1 hour
+    it("should not change pet sleep level if pet is asleep and already at max", async function () {
+      await web3kinz.connect(addr1).naptime(0);
+      await increaseTime(100_000);
+      
+      await web3kinz.connect(addr1).checkSleepStats(0);
+      const pet1AfterCheck = await web3kinz.connect(addr1).pets(0);
 
-      const hunger = await web3kinz.connect(addr1).checkHunger.staticCall(0);
-      expect(hunger).to.equal(90);
+      await expect(pet1AfterCheck.sleeplevel).to.equal(100);
+    });
 
-      await web3kinz.connect(addr1).checkHunger(0);
-      const petInfo = await web3kinz.pets(0);
-      expect(petInfo.hunger).to.equal(90);
+    it("the minimum sleep level should be 0", async function () {
+      await increaseTime(100_000_000);
+
+      await web3kinz.connect(addr1).checkSleepStats(0);
+      const pet1AfterCheck = await web3kinz.connect(addr1).pets(0);
+
+      await expect(pet1AfterCheck.sleeplevel).to.equal(0);
+    });
+
+    it("sleep level should increase if pet is asleep and time has passed", async function () {
+      // reduce sleeplevel to 0
+      await increaseTime(100_000_000);
+      await web3kinz.connect(addr1).checkSleepStats(0);
+
+      const pet = await web3kinz.connect(addr1).pets(0);
+      const initSleepLevel = await pet.sleeplevel;
+
+      // put pet to sleep
+      await web3kinz.connect(addr1).naptime(0);
+
+      // increase time
+      await increaseTime(3600);
+
+      await web3kinz.connect(addr1).checkSleepStats(0);
+      const pet1 = await web3kinz.connect(addr1).pets(0);
+      const afterSleepLevel = await pet1.sleeplevel;
+
+      await expect(afterSleepLevel).to.be.greaterThan(initSleepLevel);
+    });
+
+    it("sleep level should decrease if pet is awake and time has passed", async function () {
+      const pet = await web3kinz.connect(addr1).pets(0);
+      const initSleepLevel = await pet.sleeplevel;
+
+      // increase time
+      await increaseTime(100_000_000);
+
+      await web3kinz.connect(addr1).checkSleepStats(0);
+
+      const pet1 = await web3kinz.connect(addr1).pets(0);
+      const afterSleepLevel = await pet1.sleeplevel;
+
+      await expect(afterSleepLevel).to.be.lessThan(initSleepLevel);
     });
 
     it("should put a pet to sleep and wake it up", async function () {
@@ -402,6 +516,21 @@ describe("Web3Kinz", function () {
       ).to.be.revertedWith("Your pet is already awake!");
     });
 
+    /**
+     *  HUNGER RELATED TESTS
+     */
+
+    it("should reduce hunger after time passes", async function () {
+      await increaseTime(3600); // 1 hour
+
+      const hunger = await web3kinz.connect(addr1).checkHunger.staticCall(0);
+      expect(hunger).to.equal(90);
+
+      await web3kinz.connect(addr1).checkHunger(0);
+      const petInfo = await web3kinz.pets(0);
+      expect(petInfo.hunger).to.equal(90);
+    });
+
     it("should allow feeding a pet and burn food tokens", async function () {
       await web3kinz.connect(addr1).purchaseFood(10);
 
@@ -425,9 +554,93 @@ describe("Web3Kinz", function () {
         web3kinz.connect(addr1).feedPet(0, 1)
       ).to.be.revertedWith("You don't have enough food");
     });
+
+    /**
+     *  HAPPINESS RELATED TESTS
+     */
+    it("should emit HappinessLevel event when checkHappiness is called", async function () {
+      await expect(
+        web3kinz.connect(addr1).checkHappiness(0)
+      ).to.emit(web3kinz, "HappinessLevel");
+    });
+
+    /**
+     *  TAKE TO VET RELATED TESTS
+     */
+    it("should revert if takeToVet function is called on pet outside of comatose", async function () {
+      await expect(
+        web3kinz.connect(addr1).takeToVet(0, {value: ethers.parseEther("0.005")})
+      ).to.be.revertedWith("Your pet is perfectly healthy!")
+    });
+
+    it("should revert if takeToVet function is called with insufficient ETH", async function () {
+      // put pet in comatose
+      await web3kinz.connect(owner)._setStatsForTesting(0, 0, 0, 0);
+      await web3kinz.connect(addr1).checkHunger(0);
+      
+      await expect(
+        web3kinz.connect(addr1).takeToVet(0, {value: ethers.parseEther("0.0001")})
+      ).to.be.revertedWith("The vet fee is 0.005 ETH")
+    });
+
+    it("should emit VetTrip event if takeToVet is called and runs successfully", async function () {
+      // put pet in comatose
+      await web3kinz.connect(owner)._setStatsForTesting(0, 0, 0, 0);
+      await web3kinz.connect(addr1).checkHunger(0);
+      
+      await expect(
+        web3kinz.connect(addr1).takeToVet(0, {value: ethers.parseEther("0.005")})
+      ).to.emit(web3kinz, "VetTrip")
+    });
   });
 
-  describe("Wishing Well suspicious logic", function () {
+  /**
+   * 
+   * GAME FUNCTION TESTS
+   * 
+   * checkCrown(address user)
+   * redeemCrown()
+   * 
+   * 
+   */
+  describe("Wheel of Wow", function () {
+    beforeEach(async function () {
+      await web3kinz.connect(addr1).adoptPet(
+        ethers.encodeBytes32String("cat"),
+        ethers.encodeBytes32String("milo"),
+        { value: ethers.parseEther("0.01") }
+      );
+    });
+    it("should revert if less than 24 hours have past since last play time", async function () {
+      await web3kinz.connect(addr1).wheelOfWow(0);
+      
+      await expect(web3kinz.connect(addr1).wheelOfWow(0)).to.be.revertedWith("24 hours have not yet passed!!")
+    });
+
+    it("should emit WheelPrize event after sucessful wheelOfWow game", async function () {
+      expect(await web3kinz.connect(addr1).wheelOfWow(0)).to.emit(web3kinz, "WheelPrize");
+    });
+
+    it("should decrease hunger and sleep after sucessful wheelOfWow game", async function () {
+      const pet = await web3kinz.connect(addr1).pets(0);
+      const initHunger = await pet.hunger;
+      const initSleepLevel = await pet.sleeplevel;
+      const initHappiness = await pet.happiness;
+
+      await web3kinz.connect(addr1).wheelOfWow(0);
+
+      const petAfter = await web3kinz.connect(addr1).pets(0);
+      const afterHunger = await petAfter.hunger;
+      const afterSleepLevel = await petAfter.sleeplevel;
+      const afterHappiness = await petAfter.happiness;
+      
+      expect(initHunger).to.be.greaterThan(afterHunger);
+      expect(initSleepLevel).to.be.greaterThan(afterSleepLevel);
+      expect(initHappiness).to.equal(100);
+    });
+  });
+
+  describe("Wishing Well", function () {
     beforeEach(async function () {
       await web3kinz.connect(addr1).adoptPet(
         ethers.encodeBytes32String("cat"),
@@ -436,16 +649,120 @@ describe("Web3Kinz", function () {
       );
     });
 
-    it("should allow a non-owner to call wishingWell on another user's pet due to missing ownership check", async function () {
-      await expect(
-        web3kinz.connect(addr2).wishingWell(0)
-      ).to.not.be.reverted;
+    // BUG: a non-owner can call WishingWell on another user's pet due to missing isPetOwner(petId)
+    it("should revert if a non-owner calls wishingWell on another user's pet", async function () {
+      expect(await web3kinz.connect(addr2).wishingWell(0)).to.be.reverted;
+    });
 
-      const userInfo = await web3kinz.users(addr2.address);
-      expect(userInfo.wishes).to.equal(4);
+    // BUG: in the case that there is no matching pair (col1==col2, col2==col3) then goes to case
+    // with rowprize == 5 instead of intended assignment rowprize = 5 --> fails test
+    it("should increase the user's balance after a sucessful game of wishingWell", async function () {
+      const before = await web3kinz.users(addr1.address);
+      const beforeBalance = before.balance;
+
+      await web3kinz.connect(addr1).wishingWell(0);
+
+      const after = await web3kinz.users(addr1.address);
+      const afterBalance = after.balance;
+      const balanceDifference = after.balance - before.balance;
+
+      expect(afterBalance).to.be.greaterThan(beforeBalance);
+    });
+
+    it("should revert if user's wish count is 0", async function () {
+      // use 5 daily wishes
+      web3kinz.connect(addr1).wishingWell(0)
+      web3kinz.connect(addr1).wishingWell(0)
+      web3kinz.connect(addr1).wishingWell(0)
+      web3kinz.connect(addr1).wishingWell(0)
+      web3kinz.connect(addr1).wishingWell(0)
+
+      expect(web3kinz.connect(addr1).wishingWell(0)).to.be.revertedWith("You've run out of wishes, come back tomorrow!");
     });
   });
 
+  describe("Gem Hunt", function () {
+    beforeEach(async function () {
+      await web3kinz.connect(addr1).adoptPet(
+        ethers.encodeBytes32String("cat"),
+        ethers.encodeBytes32String("milo"),
+        { value: ethers.parseEther("0.01") }
+      );
+    });
+
+    it("should revert if user tries to play gemHunt twice within 24 hours", async function () {
+      await web3kinz.connect(addr1).gemHunt(0);
+
+      await expect(
+        web3kinz.connect(addr1).gemHunt(0)
+      ).to.be.revertedWith("Gem hunt can only be played once a day");
+    });
+
+    // BUG: if gem is found, break does not exit the full game function and pet hunger, sleep, happiness still decrement
+    it("should decrease pet hunger and sleep, and happiness after a successful gemHunt game", async function () {
+      const petBefore = await web3kinz.connect(addr1).pets(0);
+      const initHunger = petBefore.hunger;
+      const initSleepLevel = petBefore.sleeplevel;
+      const initHappiness = petBefore.happiness;
+
+      const playGame = await web3kinz.connect(addr1).gemHunt(0);
+      const receipt = await playGame.wait();
+      const gemFoundEvent = receipt.logs.find((log) => log.fragment?.name === "GemFound");
+      const gemIsFound = !!gemFoundEvent;
+
+      const petAfter = await web3kinz.connect(addr1).pets(0);
+      const afterHunger = petAfter.hunger;
+      const afterSleepLevel = petAfter.sleeplevel;
+      const afterHappiness = petAfter.happiness;
+
+      if (gemIsFound) {
+        expect(afterHappiness).to.be.greaterThanOrEqual(initHappiness);
+      } else {
+        expect(afterHappiness).to.be.lessThanOrEqual(initHappiness);
+        expect(afterHunger).to.be.lessThanOrEqual(initHunger);
+        expect(afterSleepLevel).to.be.lessThanOrEqual(initSleepLevel);
+      }
+    });
+
+    it("should return false and emit CrownRedeemable(false) when user is missing any required gem", async function () {
+      const result = await web3kinz.connect(addr1).checkCrown.staticCall(addr1.address);
+      expect(result).to.equal(false);
+
+      await expect(
+        web3kinz.connect(addr1).checkCrown(addr1.address)
+      ).to.emit(web3kinz, "CrownRedeemable").withArgs(addr1.address, false);
+    });
+
+    // BUG: iterative check over all gem type inventory does not check the 29th gem type 'carat eclipse'
+    it("should return true and emit CrownRedeemable(true) when user has all required gems", async function () {
+      const result = await web3kinz.connect(addr1).checkCrown.staticCall(addr1.address);
+      expect(result).to.equal(true);
+
+      await expect(
+        web3kinz.connect(addr1).checkCrown(addr1.address)
+      ).to.emit(web3kinz, "CrownRedeemable").withArgs(addr1.address, true);
+    });
+
+    it("should revert redeemCrown when user does not have enough gems", async function () {
+      await expect(
+        web3kinz.connect(addr1).redeemCrown()
+      ).to.be.revertedWith("You don't have enough gems");
+    });
+
+    it("should revert redeemCrown when user does not have enough gems", async function () {
+      await expect(
+        web3kinz.connect(addr1).redeemCrown()
+      ).to.be.revertedWith("You don't have enough gems");
+    });
+
+  });
+
+
+  /**
+   * 
+   * TRADING ITEM TESTS
+   * 
+   */
   describe("Trading", function () {
     beforeEach(async function () {
       await web3kinz.connect(addr1).buyKinzCash({ value: 101000 });
